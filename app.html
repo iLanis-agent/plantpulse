@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PlantPulse</title>
+<style>
+  :root { --bg:#f4f7f0; --card:#fff; --ink:#22311f; --muted:#7a8a72; --green:#4c9a4c; --red:#d9534f; --amber:#e8a13c; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:ui-sans-serif,system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:20px 24px 8px; }
+  h1 { margin:0; font-size:1.5rem; }
+  .sub { color:var(--muted); margin:4px 0 0; font-size:.9rem; }
+  main { max-width:720px; margin:0 auto; padding:12px 16px 40px; }
+  form { background:var(--card); border-radius:12px; padding:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+  input, select, button { font:inherit; padding:8px 10px; border:1px solid #d6dfcf; border-radius:8px; background:#fff; }
+  input[type=text] { flex:1; min-width:140px; }
+  button { background:var(--green); color:#fff; border:none; cursor:pointer; }
+  button.ghost { background:#eef3e8; color:var(--ink); }
+  .card { background:var(--card); border-radius:12px; padding:14px 16px; margin-bottom:10px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+  .name { font-weight:600; font-size:1.05rem; }
+  .species { color:var(--muted); font-size:.85rem; }
+  .badge { font-size:.75rem; font-weight:700; padding:3px 9px; border-radius:999px; text-transform:uppercase; letter-spacing:.03em; }
+  .b-ok { background:#e2f0e0; color:#2e6b2e; }
+  .b-soon { background:#fbf0da; color:#9a6b12; }
+  .b-over { background:#fae2e1; color:#b23834; }
+  .b-never { background:#e8edf4; color:#52637a; }
+  .tasks { margin-top:8px; display:flex; gap:10px; flex-wrap:wrap; font-size:.85rem; }
+  .task { padding:6px 10px; background:#f2f5ee; border-radius:8px; }
+  .task.over { color:#b23834; font-weight:600; }
+  .actions { margin-top:10px; display:flex; gap:8px; }
+  .actions button { padding:6px 12px; font-size:.85rem; }
+  .empty { text-align:center; color:var(--muted); padding:40px 0; }
+  .danger { background:#fae2e1; color:#b23834; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PlantPulse</h1>
+  <p class="sub">Houseplant care that runs on each plant's own clock. Watered last week means something different to a fern and a cactus.</p>
+</header>
+<main>
+  <form id="add-form">
+    <input type="text" id="p-name" placeholder="Plant name" required maxlength="40">
+    <select id="p-species"></select>
+    <button type="submit">Add plant</button>
+  </form>
+  <div id="list"></div>
+</main>
+<script src="engine.js"></script>
+<script>
+(function () {
+  var KEY = 'plantpulse-v1';
+  function today() { return new Date().toISOString().slice(0, 10); }
+  function load() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } }
+  function save(p) { localStorage.setItem(KEY, JSON.stringify(p)); }
+  var plants = load();
+
+  var sel = document.getElementById('p-species');
+  Object.keys(PlantPulse.SPECIES).forEach(function (k) {
+    var o = document.createElement('option');
+    o.value = k; o.textContent = PlantPulse.SPECIES[k].label + ' (water ' + PlantPulse.SPECIES[k].water + 'd)';
+    sel.appendChild(o);
+  });
+
+  function badgeText(st) {
+    if (st.state === 'never') return ['never', 'b-never'];
+    if (st.state === 'overdue') return [st.overdueBy + 'd overdue', 'b-over'];
+    if (st.state === 'due-soon') return ['due soon', 'b-soon'];
+    return ['ok', 'b-ok'];
+  }
+  function taskLine(label, st) {
+    if (st.state === 'never') return label + ': never logged';
+    if (st.state === 'overdue') return label + ': ' + st.overdueBy + 'd overdue';
+    return label + ': ' + (st.daysUntil === 0 ? 'today' : st.daysUntil + 'd left');
+  }
+
+  function render() {
+    var list = document.getElementById('list');
+    list.innerHTML = '';
+    if (!plants.length) { list.innerHTML = '<div class="empty">No plants yet. Add your first one above.</div>'; return; }
+    PlantPulse.sortPlants(plants, today()).forEach(function (s) {
+      var p = s.plant;
+      var card = document.createElement('div'); card.className = 'card';
+      var top = document.createElement('div'); top.className = 'row';
+      var left = document.createElement('div');
+      var nm = document.createElement('span'); nm.className = 'name'; nm.textContent = p.name;
+      var sp = document.createElement('span'); sp.className = 'species';
+      sp.textContent = ' ' + (PlantPulse.SPECIES[p.species] ? PlantPulse.SPECIES[p.species].label : p.species);
+      left.appendChild(nm); left.appendChild(sp);
+      var bt = badgeText(s[s.driver]);
+      var b = document.createElement('span'); b.className = 'badge ' + bt[1]; b.textContent = bt[0];
+      top.appendChild(left); top.appendChild(b);
+      card.appendChild(top);
+      var tasks = document.createElement('div'); tasks.className = 'tasks';
+      [['Water', s.water], ['Fertilize', s.fertilize]].forEach(function (t) {
+        var d = document.createElement('div'); d.className = 'task' + (t[1].state === 'overdue' ? ' over' : '');
+        d.textContent = taskLine(t[0], t[1]);
+        tasks.appendChild(d);
+      });
+      card.appendChild(tasks);
+      var act = document.createElement('div'); act.className = 'actions';
+      [['Watered', 'lastWatered'], ['Fertilized', 'lastFertilized']].forEach(function (a) {
+        var btn = document.createElement('button'); btn.className = 'ghost'; btn.textContent = a[0];
+        btn.onclick = function () { p[a[1]] = today(); save(plants); render(); };
+        act.appendChild(btn);
+      });
+      var del = document.createElement('button'); del.className = 'ghost danger'; del.textContent = 'Remove';
+      del.onclick = function () {
+        if (!confirm('Remove ' + p.name + '?')) return;
+        plants = plants.filter(function (x) { return x !== p; }); save(plants); render();
+      };
+      act.appendChild(del);
+      card.appendChild(act);
+      list.appendChild(card);
+    });
+  }
+
+  document.getElementById('add-form').onsubmit = function (e) {
+    e.preventDefault();
+    var name = document.getElementById('p-name').value.trim();
+    if (!name) return;
+    plants.push({ name: name, species: sel.value, lastWatered: today(), lastFertilized: null });
+    save(plants);
+    document.getElementById('p-name').value = '';
+    render();
+  };
+  render();
+})();
+</script>
+</body>
+</html>
